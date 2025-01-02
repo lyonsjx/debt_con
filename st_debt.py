@@ -29,20 +29,67 @@ def calculate_total_interest(principal, annual_rate, months):
     total_payment = monthly_payment * months
     return total_payment - principal
 
-def calculate_revolving_payment(balance, annual_rate, min_payment_percent, fixed_min_payment):
-    """Calculates the monthly payment for a revolving loan."""
-    monthly_rate = annual_rate / 12
-    interest_cost = balance * monthly_rate
+def calculate_revolving_payment(balance, annual_rate):
+    """Calculates the minimum monthly payment for a revolving loan."""
+    # Fixed defaults
+    min_payment_percent = 3  # 3% of balance
+    fixed_min_payment = 10  # $10 minimum payment
+    # Calculate the percentage-based payment
     percentage_payment = balance * (min_payment_percent / 100)
-    return max(percentage_payment, fixed_min_payment) + interest_cost
+    # Return the maximum of the two
+    return max(percentage_payment, fixed_min_payment)
+
+def calculate_revolving_borrowing_cost_daily(balance, annual_rate, monthly_payment):
+    """Calculates the total borrowing cost (interest only) for revolving debt with daily interest accrual."""
+    total_interest = 0
+    remaining_balance = balance
+    daily_rate = annual_rate / 365  # Daily interest rate
+    days_in_month = 30  # Assuming 30 days per month for simplicity
+
+    while remaining_balance > 0:
+        monthly_interest = 0
+        for day in range(days_in_month):
+            # Accrue interest for the day
+            daily_interest = remaining_balance * daily_rate
+            monthly_interest += daily_interest
+            remaining_balance += daily_interest
+
+            # Stop accruing interest if balance is fully paid off mid-month
+            if monthly_payment >= remaining_balance:
+                total_interest += monthly_interest
+                remaining_balance = 0
+                break
+
+        if remaining_balance == 0:
+            break
+
+        # Add the monthly interest to the total interest
+        total_interest += monthly_interest
+
+        # Apply the monthly payment
+        payment = min(monthly_payment, remaining_balance)
+        remaining_balance -= payment
+
+        # Avoid negative balance
+        if remaining_balance < 0:
+            remaining_balance = 0
+
+    return round(total_interest, 2)
+
+
+
 
 # Streamlit app
-st.title("Debt Consolidation Model with Start Dates")
+st.title("Debt Consolidation Model")
+
+# Initialize session state for error messages
+if "error_message" not in st.session_state:
+    st.session_state.error_message = ""
 
 # Input debt details
 st.header("Debt Details")
 debts = []
-num_debts = st.number_input("Number of Debts", min_value=1, max_value=10, value=2)
+num_debts = st.number_input("Number of Debts", min_value=1, max_value=10, value=1)
 for i in range(num_debts):
     st.subheader(f"Debt {i + 1}")
     name = st.text_input(f"Name of Debt {i + 1}", value=f"Debt {i + 1}")
@@ -86,18 +133,37 @@ for i in range(num_debts):
         })
 
     elif loan_type == "Revolving":
-        min_payment_percent = st.number_input(f"Minimum Payment (% of Balance) for {name}", min_value=0.0, step=0.1)
-        fixed_min_payment = st.number_input(f"Fixed Minimum Payment for {name}", min_value=0.0, step=10.0)
-        monthly_payment = calculate_revolving_payment(balance, rate, min_payment_percent, fixed_min_payment)
+        # Calculate default minimum payment
+        monthly_payment = calculate_revolving_payment(balance, rate)
+
+        # Allow the user to override with a custom monthly payment
+        use_custom_payment = st.checkbox(f"Use Custom Payment for {name}")
+        if use_custom_payment:
+            custom_payment = st.number_input(
+                f"Custom Monthly Payment for {name}",
+                min_value=monthly_payment,  # Ensure custom payment is at least the minimum payment
+                step=10.0
+            )
+            monthly_payment = custom_payment
+
+        # Calculate total borrowing cost with daily interest accrual
+        total_interest = calculate_revolving_borrowing_cost_daily(balance, rate, monthly_payment)
+
+        # Display the calculated or custom payment
         st.write(f"Calculated Monthly Payment for {name}: ${monthly_payment:,.2f}")
+        st.write(f"Total Cost of Borrowing (with daily interest accrual) for {name}: ${total_interest:,.2f}")
+
+        # Append details to debts
         debts.append({
             "name": name,
             "type": loan_type,
             "balance": balance,
             "rate": rate,
-            "monthly_payment": monthly_payment
-        })
-
+            "monthly_payment": monthly_payment,
+            "total_cost": total_interest,
+            "custom_payment_used": use_custom_payment
+    })
+    
 # Input mortgage details
 st.header("Mortgage Details")
 mortgage_balance = st.number_input("Current Mortgage Balance", min_value=0.0, step=1000.0)
@@ -139,24 +205,27 @@ if selected_debts and new_amortization > 0:
 
 # Compute scenarios
 if st.button("Compare Scenarios"):
-    # Current scenario
-    total_remaining_interest = sum(debt['remaining_interest'] for debt in debts if 'remaining_interest' in debt)
-    total_current_interest = total_remaining_interest + remaining_mortgage_interest
-    total_debt_payment = sum(debt['monthly_payment'] for debt in debts)
-    current_total_payment = total_debt_payment + mortgage_payment
+    if "remaining_mortgage_interest" in locals() and remaining_mortgage_interest is not None:
+        # Current scenario
+        total_remaining_interest = sum(debt['remaining_interest'] for debt in debts if 'remaining_interest' in debt)
+        total_current_interest = total_remaining_interest + remaining_mortgage_interest
+        total_debt_payment = sum(debt['monthly_payment'] for debt in debts)
+        current_total_payment = total_debt_payment + mortgage_payment
 
-    # Display results
-    st.subheader("Comparison Results")
-    st.write("### Current Scenario")
-    st.write(f"Remaining Total Interest to be Paid: ${total_current_interest:,.2f}")
-    st.write(f"Total Monthly Payment: ${current_total_payment:,.2f}")
+        # Display results
+        st.subheader("Comparison Results")
+        st.write("### Current Scenario")
+        st.write(f"Remaining Total Interest to be Paid: ${total_current_interest:,.2f}")
+        st.write(f"Total Monthly Payment: ${current_total_payment:,.2f}")
 
-    st.write("### Consolidated Scenario")
-    st.write(f"Total Interest Paid Over Consolidated Loan: ${consolidated_total_interest:,.2f}")
-    st.write(f"Total Monthly Payment: ${consolidated_monthly_payment:,.2f}")
+        st.write("### Consolidated Scenario")
+        st.write(f"Total Interest Paid Over Consolidated Loan: ${consolidated_total_interest:,.2f}")
+        st.write(f"Total Monthly Payment: ${consolidated_monthly_payment:,.2f}")
 
-    # Comparison
-    if consolidated_total_interest < total_current_interest:
-        st.success("Consolidating saves you money!")
+        # Comparison
+        if consolidated_total_interest < total_current_interest:
+            st.success("Consolidating saves you money!")
+        else:
+            st.warning("Consolidating may cost more in interest over time.")
     else:
-        st.warning("Consolidating may cost more in interest over time.")
+        st.error("Mortgage details are incomplete or missing. Please complete the inputs.")
