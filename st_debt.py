@@ -141,17 +141,20 @@ for i in range(num_debts):
         if use_custom_payment:
             custom_payment = st.number_input(
                 f"Custom Monthly Payment for {name}",
-                min_value=monthly_payment,  # Ensure custom payment is at least the minimum payment
+                min_value=monthly_payment,
                 step=10.0
             )
             monthly_payment = custom_payment
+
+        # Revolving debts start with the full balance as the "remaining_balance"
+        remaining_balance = balance
 
         # Calculate total borrowing cost with daily interest accrual
         total_interest = calculate_revolving_borrowing_cost_daily(balance, rate, monthly_payment)
 
         # Display the calculated or custom payment
         st.write(f"Calculated Monthly Payment for {name}: ${monthly_payment:,.2f}")
-        st.write(f"Total Cost of Borrowing (with daily interest accrual) for {name}: ${total_interest:,.2f}")
+        st.write(f"Total Interest Paid (Cost of Borrowing with daily interest accrual) for {name}: ${total_interest:,.2f}")
 
         # Append details to debts
         debts.append({
@@ -159,11 +162,12 @@ for i in range(num_debts):
             "type": loan_type,
             "balance": balance,
             "rate": rate,
+            "remaining_balance": remaining_balance,  # Added remaining_balance for consistency
             "monthly_payment": monthly_payment,
-            "total_cost": total_interest,
+            "total_interest": total_interest,
             "custom_payment_used": use_custom_payment
-    })
-    
+        })
+        
 # Input mortgage details
 st.header("Mortgage Details")
 mortgage_balance = st.number_input("Current Mortgage Balance", min_value=0.0, step=1000.0)
